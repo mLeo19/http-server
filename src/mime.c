@@ -28,6 +28,8 @@ const char *map_to_content_type(const char *path) {
         return "image/x-icon";
     } else if (strcmp(ext, ".json") == 0) {
         return "application/json";
+    } else if (strcmp(ext, ".svg") == 0) {
+        return "image/svg+xml";
     } else {
         // default to plain text if ext is .txt or unknown
         return "text/plain";
