@@ -9,6 +9,7 @@ int main(void) {
     // register routes
     // add your own handlers here
     register_route(s, "GET", "/api/status", handle_status);
+    register_route(s, "POST", "/api/echo", handle_echo);
 
     // start server — blocks forever
     start_server(s);

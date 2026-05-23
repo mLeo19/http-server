@@ -6,4 +6,6 @@
 // example handler — returns server status as JSON
 void handle_status(int fd, HttpRequest *req);
 
+void handle_echo(int fd, HttpRequest *req);
+
 #endif

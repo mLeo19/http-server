@@ -1,11 +1,16 @@
 #ifndef REQUEST_H
 #define REQUEST_H
 
+#include <stddef.h> // size_t
+
 // holds everything we parse from an HTTP request
 typedef struct {
     char method[16];
     char path[256];
     char version[16];
+    char content_type[128]; // Content-Type header value
+    size_t content_length;  // Content-Length header value
+    char body[4096];        // request body (POST, PUT, PATCH)
 } HttpRequest;
 
 // parses raw buffer into an HttpRequest struct
