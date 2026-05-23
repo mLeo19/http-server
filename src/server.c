@@ -59,8 +59,8 @@ static int dispatch(Server *s, int fd, HttpRequest *req) {
     for (int i = 0; i < s->route_count; i++) {
         if (strcmp(s->routes[i].method, req->method) == 0 &&
             strcmp(s->routes[i].path,   req->path)   == 0) {
-            s->routes[i].handler(fd, req);
-            return 200;  // route matched, handler called successfully
+            int status = s->routes[i].handler(fd, req);
+            return status;  // route matched, handler called successfully
         }
     }
 

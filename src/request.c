@@ -17,6 +17,17 @@ int parse_request(const char *buffer, HttpRequest *req) {
                         req->version);
     if (result != 3) return 0;
 
+    // split path and query string
+    // "/api/todos?id=1" → path="/api/todos" query="id=1"
+    char *q = strchr(req->path, '?');
+    if (q) {
+        strncpy(req->query, q + 1, 255);
+        req->query[255] = '\0';
+        *q = '\0'; // terminate path at the ?
+    } else {
+        req->query[0] = '\0'; // no query string
+    }
+
     // 2. find the end of headers
     const char *header_end = strstr(buffer, "\r\n\r\n");
     if (!header_end) return 1; // no body, still valid

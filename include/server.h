@@ -10,7 +10,7 @@
 
 // function pointer type for route handlers
 // every handler takes a client fd and parsed request
-typedef void (*HandlerFn)(int fd, HttpRequest *req);
+typedef int (*HandlerFn)(int fd, HttpRequest *req);
 
 // a single route — method + path + handler
 typedef struct {

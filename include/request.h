@@ -8,6 +8,7 @@ typedef struct {
     char method[16];
     char path[256];
     char version[16];
+    char query[256];       // everything after ? in the path
     char content_type[128]; // Content-Type header value
     size_t content_length;  // Content-Length header value
     char body[4096];        // request body (POST, PUT, PATCH)
