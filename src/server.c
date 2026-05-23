@@ -11,6 +11,8 @@
 #include "../include/files.h"
 #include "../include/response.h"
 #include "../include/server.h"
+#include "../include/logger.h"
+#include <time.h>
 
 // returns pointer to IPv4 or IPv6 address inside a sockaddr
 // handles both address families so inet_ntop works correctly
@@ -52,13 +54,13 @@ void register_route(Server *s,
 
 // find matching route and call its handler
 // if no match found → try static files → 404
-static void dispatch(Server *s, int fd, HttpRequest *req) {
+static int dispatch(Server *s, int fd, HttpRequest *req) {
     // check registered routes first
     for (int i = 0; i < s->route_count; i++) {
         if (strcmp(s->routes[i].method, req->method) == 0 &&
             strcmp(s->routes[i].path,   req->path)   == 0) {
             s->routes[i].handler(fd, req);
-            return;
+            return 200;  // route matched, handler called successfully
         }
     }
 
@@ -72,11 +74,12 @@ static void dispatch(Server *s, int fd, HttpRequest *req) {
         const char *mime_path = strcmp(req->path, "/") == 0 ? "/index.html" : req->path;
         send_file(fd, mime_path, content, file_size);
         free(content);
-        return;
+        return 200; // file found and sent successfully
     }
 
     // nothing matched — 404
     send_not_found(fd);
+    return 404; // file not found
 }
 
 // bind and listen
@@ -96,6 +99,7 @@ static int setup_socket(const char *port) {
     // gai_strerror converts error code to readable string
     if ((rv = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        log_error("getaddrinfo failed");
         return -1;
     }
 
@@ -107,6 +111,7 @@ static int setup_socket(const char *port) {
                        p->ai_protocol);
         if (sockfd == -1) {
             perror("socket");
+            log_error("failed to create socket");
             continue;
         }
 
@@ -115,6 +120,7 @@ static int setup_socket(const char *port) {
         if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
                       &yes, sizeof(int)) == -1) {
             perror("setsockopt");
+            log_error("setsockopt failed");
             exit(1);
         }
 
@@ -122,6 +128,7 @@ static int setup_socket(const char *port) {
         if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
             close(sockfd);
             perror("bind");
+            log_error("failed to bind socket");
             continue;
         }
 
@@ -134,6 +141,7 @@ static int setup_socket(const char *port) {
 
     if (p == NULL) {
         fprintf(stderr, "server: failed to bind\n");
+        log_error("server: failed to bind");
         return -1;
     }
 
@@ -141,6 +149,7 @@ static int setup_socket(const char *port) {
     // BACKLOG = how many connections can queue while we're busy
     if (listen(sockfd, BACKLOG) == -1) {
         perror("listen");
+        log_error("listen failed");
         return -1;
     }
 
@@ -155,10 +164,11 @@ void start_server(Server *s) {
     s->sockfd = setup_socket(port_str);
     if (s->sockfd == -1) {
         fprintf(stderr, "failed to start server\n");
+        log_error("failed to start server");
         return;
     }
 
-    printf("server: listening on port %d\n", s->port);
+    log_info("server started");
 
     struct sockaddr_storage their_addr;
     socklen_t sin_size;
@@ -173,13 +183,13 @@ void start_server(Server *s) {
                            &sin_size);
         if (new_fd == -1) {
             perror("accept");
+            log_error("accept failed");
             continue;
         }
 
         inet_ntop(their_addr.ss_family,
                  get_in_addr((struct sockaddr*)&their_addr),
                  s_addr, sizeof s_addr);
-        printf("server: connection from %s\n", s_addr);
 
         // zero buffer before reading — no leftover garbage from last request
         memset(buffer, 0, BUFFER_SIZE);
@@ -190,6 +200,7 @@ void start_server(Server *s) {
         int bytes_read = recv(new_fd, buffer, BUFFER_SIZE - 1, 0);
         if (bytes_read == -1) {
             perror("recv");
+            log_error("recv failed");
             close(new_fd);
             continue;
         }
@@ -199,14 +210,23 @@ void start_server(Server *s) {
 
         if (!parse_request(buffer, &req)) {
             send_bad_request(new_fd);
+            log_request("???", "???", 400, 0.0);
             close(new_fd);
             continue;
         }
 
-        printf("Method: %s Path: %s\n", req.method, req.path);
+        // log the request with timestamp, method, path, status code, and duration
+        struct timespec start, end;
+        clock_gettime(CLOCK_MONOTONIC, &start);
 
         // dispatch to handler or static file
-        dispatch(s, new_fd, &req);
+        int status = dispatch(s, new_fd, &req);
+
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        double ms = (end.tv_sec - start.tv_sec) * 1000.0 +
+                    (end.tv_nsec - start.tv_nsec) / 1e6;
+
+        log_request(req.method, req.path, status, ms);
 
         // close this client's connection
         // without this we leak file descriptors
@@ -220,5 +240,6 @@ void free_server(Server *s) {
     if (s->sockfd != -1) {
         close(s->sockfd);
     }
+    log_info("server shutting down");
     free(s);
 }

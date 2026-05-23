@@ -8,7 +8,8 @@ SRC = src/main.c \
       src/response.c \
       src/files.c \
       src/mime.c \
-      src/handlers.c
+      src/handlers.c \
+	  src/logger.c
 
 $(TARGET): $(SRC)
 	$(CC) $(CFLAGS) $(SRC) -o $(TARGET)
