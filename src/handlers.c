@@ -2,6 +2,10 @@
 #include <string.h>
 #include "../include/handlers.h"
 #include "../include/response.h"
+#include <pthread.h>
+
+// protects todos array from simultaneous thread access
+static pthread_mutex_t todos_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // ─── in memory todo store ───────────────────────────────
 typedef struct {
@@ -34,11 +38,13 @@ int handle_echo(int fd, HttpRequest *req) {
 int handle_get_todos(int fd, HttpRequest *req) {
     (void)req;
     char buf[4096];
-    int offset = 0;
+
+    pthread_mutex_lock(&todos_lock);
 
     if (todo_count == 0) {
         snprintf(buf, sizeof(buf), "[]");
     } else {
+        int offset = 0;
         offset += snprintf(buf + offset,
                           sizeof(buf) - offset, "[");
         for (int i = 0; i < todo_count; i++) {
@@ -49,82 +55,75 @@ int handle_get_todos(int fd, HttpRequest *req) {
                 todos[i].title,
                 todos[i].done ? "true" : "false");
         }
-        // replace trailing comma with closing bracket
         buf[offset - 1] = ']';
         buf[offset] = '\0';
     }
 
-    send_json(fd, 200, buf);
-    return 200;
+    pthread_mutex_unlock(&todos_lock);
+
+    return send_json(fd, 200, buf);
 }
 
 int handle_create_todo(int fd, HttpRequest *req) {
-    // check body exists
     if (req->content_length == 0) {
-        send_json(fd, 400, "{\"error\": \"body required\"}");
-        return 400;
+        return send_json(fd, 400,
+            "{\"error\": \"body required\"}");
     }
 
-    // check store isn't full
-    if (todo_count >= 100) {
-        send_json(fd, 500, "{\"error\": \"storage full\"}");
-        return 500;
-    }
-
-    // extract title from body
-    // body looks like: {"title": "buy milk"}
+    // extract title before locking
     char title[256] = {0};
     const char *t = strstr(req->body, "\"title\"");
     if (!t) {
-        send_json(fd, 400, "{\"error\": \"title required\"}");
-        return 400;
+        return send_json(fd, 400,
+            "{\"error\": \"title required\"}");
     }
-
-    // skip past "title"
     t = strchr(t, ':');
     if (!t) {
-        send_json(fd, 400, "{\"error\": \"invalid format\"}");
-        return 400;
+        return send_json(fd, 400,
+            "{\"error\": \"invalid format\"}");
     }
-    t++; // skip ':'
-
-    // skip whitespace and opening quote
+    t++;
     while (*t == ' ' || *t == '"') t++;
-
-    // copy until closing quote
     int i = 0;
     while (*t && *t != '"' && i < 255) {
         title[i++] = *t++;
     }
     title[i] = '\0';
 
-    // add to store
+    pthread_mutex_lock(&todos_lock);
+
+    if (todo_count >= 100) {
+        pthread_mutex_unlock(&todos_lock);
+        return send_json(fd, 500,
+            "{\"error\": \"storage full\"}");
+    }
+
     todos[todo_count].id   = next_id++;
     todos[todo_count].done = 0;
     strncpy(todos[todo_count].title, title, 255);
     todo_count++;
 
-    // send 201 Created with new todo
     char response[512];
     snprintf(response, sizeof(response),
         "{\"id\":%d,\"title\":\"%s\",\"done\":false}",
         todos[todo_count - 1].id,
         todos[todo_count - 1].title);
-    send_json(fd, 201, response);
-    return 201;
+
+    pthread_mutex_unlock(&todos_lock);
+
+    return send_json(fd, 201, response);
 }
 
 int handle_delete_todo(int fd, HttpRequest *req) {
-    // get id from query string
-    // query looks like: "id=1"
     int id = -1;
     sscanf(req->query, "id=%d", &id);
     if (id == -1) {
-        send_json(fd, 400, "{\"error\": \"id required\"}");
-        return 400;
+        return send_json(fd, 400,
+            "{\"error\": \"id required\"}");
     }
 
-    // find todo with that id
+    pthread_mutex_lock(&todos_lock);
+
     int found = -1;
     for (int i = 0; i < todo_count; i++) {
         if (todos[i].id == id) {
@@ -134,47 +133,49 @@ int handle_delete_todo(int fd, HttpRequest *req) {
     }
 
     if (found == -1) {
-        send_json(fd, 404, "{\"error\": \"todo not found\"}");
-        return 404;
+        pthread_mutex_unlock(&todos_lock);
+        return send_json(fd, 404,
+            "{\"error\": \"todo not found\"}");
     }
 
-    // remove by shifting remaining todos down
     for (int i = found; i < todo_count - 1; i++) {
         todos[i] = todos[i + 1];
     }
     todo_count--;
 
-    send_json(fd, 200, "{\"message\": \"deleted\"}");
-    return 200;
+    pthread_mutex_unlock(&todos_lock);
+
+    return send_json(fd, 200,
+        "{\"message\": \"deleted\"}");
 }
 
 int handle_toggle_todo(int fd, HttpRequest *req) {
-    // get id from query string
     int id = -1;
     sscanf(req->query, "id=%d", &id);
     if (id == -1) {
-        send_json(fd, 400, "{\"error\": \"id required\"}");
-        return 400;
+        return send_json(fd, 400,
+            "{\"error\": \"id required\"}");
     }
 
-    // find todo with that id
+    pthread_mutex_lock(&todos_lock);
+
     for (int i = 0; i < todo_count; i++) {
         if (todos[i].id == id) {
-            // flip done status
             todos[i].done = !todos[i].done;
 
-            // send updated todo
             char response[512];
             snprintf(response, sizeof(response),
                 "{\"id\":%d,\"title\":\"%s\",\"done\":%s}",
                 todos[i].id,
                 todos[i].title,
                 todos[i].done ? "true" : "false");
-            send_json(fd, 200, response);
-            return 200;
+
+            pthread_mutex_unlock(&todos_lock);
+            return send_json(fd, 200, response);
         }
     }
 
-    send_json(fd, 404, "{\"error\": \"todo not found\"}");
-    return 404;
+    pthread_mutex_unlock(&todos_lock);
+    return send_json(fd, 404,
+        "{\"error\": \"todo not found\"}");
 }

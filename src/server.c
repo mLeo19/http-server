@@ -13,15 +13,11 @@
 #include "../include/server.h"
 #include "../include/logger.h"
 #include <time.h>
+#include "../include/threadpool.h"
+#include <signal.h>
 
-// returns pointer to IPv4 or IPv6 address inside a sockaddr
-// handles both address families so inet_ntop works correctly
-static void *get_in_addr(struct sockaddr *sa) {
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
+// global server pointer so worker threads can dispatch
+static Server *g_server = NULL;
 
 // allocate and initialize a new server
 Server *create_server(int port) {
@@ -47,7 +43,9 @@ void register_route(Server *s,
         return;
     }
     strncpy(s->routes[s->route_count].method, method, 15);
-    strncpy(s->routes[s->route_count].path,   path,   255);
+    s->routes[s->route_count].method[15] = '\0';
+    strncpy(s->routes[s->route_count].path, path, 255);
+    s->routes[s->route_count].path[255] = '\0';
     s->routes[s->route_count].handler = handler;
     s->route_count++;
 }
@@ -156,6 +154,51 @@ static int setup_socket(const char *port) {
     return sockfd;
 }
 
+// called by each worker thread for each connection
+static void handle_connection(int fd) {
+    char buffer[BUFFER_SIZE];
+    memset(buffer, 0, BUFFER_SIZE);
+
+    int bytes_read = recv(fd, buffer, BUFFER_SIZE - 1, 0);
+    if (bytes_read == -1) {
+        perror("recv");
+        log_error("recv failed");
+        close(fd);
+        return;
+    }
+
+    HttpRequest req;
+    if (!parse_request(buffer, &req)) {
+        send_bad_request(fd);
+        log_request("???", "???", 400, 0.0);
+        close(fd);
+        return;
+    }
+
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    int status = dispatch(g_server, fd, &req);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double ms = (end.tv_sec  - start.tv_sec)  * 1000.0 +
+                (end.tv_nsec - start.tv_nsec) / 1e6;
+
+    log_request(req.method, req.path, status, ms);
+
+    close(fd);
+}
+
+// global flag — volatile so compiler doesn't optimize away
+static volatile int g_running = 1;
+
+static void handle_signal(int sig) {
+    (void)sig;
+    g_running = 0;
+    close(g_server->sockfd);
+    g_server->sockfd = -1;
+}
+
 // main accept loop
 void start_server(Server *s) {
     char port_str[8];
@@ -163,76 +206,56 @@ void start_server(Server *s) {
 
     s->sockfd = setup_socket(port_str);
     if (s->sockfd == -1) {
-        fprintf(stderr, "failed to start server\n");
         log_error("failed to start server");
         return;
     }
 
+    // register signal handlers
+    signal(SIGINT,  handle_signal);
+    signal(SIGTERM, handle_signal);
+
+    // store server pointer for worker threads
+    g_server = s;
+    g_running = 1;
+
+    // create thread pool
+    ThreadPool *pool = threadpool_create(handle_connection);
+    if (!pool) {
+        log_error("failed to create thread pool");
+        return;
+    }
+
     log_info("server started");
+    log_info("thread pool ready");
 
     struct sockaddr_storage their_addr;
     socklen_t sin_size;
-    char s_addr[INET6_ADDRSTRLEN];
-    char buffer[BUFFER_SIZE];
 
-    while (1) {
+    while (g_running) {
         sin_size = sizeof their_addr;
 
         int new_fd = accept(s->sockfd,
                            (struct sockaddr*)&their_addr,
                            &sin_size);
         if (new_fd == -1) {
+            // EINTR means accept was interrupted by signal
+            // that's normal during shutdown — don't log error
+            if (!g_running) break;
             perror("accept");
             log_error("accept failed");
             continue;
         }
 
-        inet_ntop(their_addr.ss_family,
-                 get_in_addr((struct sockaddr*)&their_addr),
-                 s_addr, sizeof s_addr);
-
-        // zero buffer before reading — no leftover garbage from last request
-        memset(buffer, 0, BUFFER_SIZE);
-
-        // read raw HTTP requerst into buffer
-        // BUFFER_SIZE - 1 leaves room for null terminator
-        // kernel sets errno if this fails
-        int bytes_read = recv(new_fd, buffer, BUFFER_SIZE - 1, 0);
-        if (bytes_read == -1) {
-            perror("recv");
-            log_error("recv failed");
-            close(new_fd);
-            continue;
-        }
-
-        // parse the request
-        HttpRequest req;
-
-        if (!parse_request(buffer, &req)) {
-            send_bad_request(new_fd);
-            log_request("???", "???", 400, 0.0);
-            close(new_fd);
-            continue;
-        }
-
-        // log the request with timestamp, method, path, status code, and duration
-        struct timespec start, end;
-        clock_gettime(CLOCK_MONOTONIC, &start);
-
-        // dispatch to handler or static file
-        int status = dispatch(s, new_fd, &req);
-
-        clock_gettime(CLOCK_MONOTONIC, &end);
-        double ms = (end.tv_sec - start.tv_sec) * 1000.0 +
-                    (end.tv_nsec - start.tv_nsec) / 1e6;
-
-        log_request(req.method, req.path, status, ms);
-
-        // close this client's connection
-        // without this we leak file descriptors
-        // eventually the OS runs out and crashes
-        close(new_fd);
+        // hand off to thread pool immediately
+        // main thread goes back to accepting
+        threadpool_add(pool, new_fd);
     }
+
+    // clean shutdown
+    log_info("shutting down...");
+    threadpool_destroy(pool);
+    log_info("server stopped");
+    exit(0);
 }
 
 // free all server resources

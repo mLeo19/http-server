@@ -13,10 +13,17 @@
 
     <nav>
         <span class="nav-logo">~/http-server</span>
-        <a href="https://github.com/mLeo19/http-server" target="_blank" class="nav-link">github →</a>
+        <div class="nav-right">
+            <span class="status-pill">
+                <span class="status-dot"></span>
+                <span id="status-text">connecting...</span>
+            </span>
+            <a href="https://github.com/mLeo19/http-server" target="_blank" class="nav-link">github →</a>
+        </div>
     </nav>
 
     <main>
+        <!-- HERO -->
         <section class="hero">
             <div class="terminal-window">
                 <div class="terminal-bar">
@@ -25,46 +32,71 @@
                     <span class="dot green"></span>
                     <span class="terminal-title">leo@ec2 ~ % ./server</span>
                 </div>
-                <div class="terminal-body">
+                <div class="terminal-body" id="terminal-log">
                     <div class="terminal-line">
                         <span class="prompt">$</span>
                         <span class="cmd"> make && ./server</span>
                     </div>
-                    <div class="terminal-line out">clang -Wall -Wextra -g src/main.c src/server.c \</div>
-                    <div class="terminal-line out">      src/request.c src/response.c src/files.c \</div>
-                    <div class="terminal-line out">      src/mime.c src/handlers.c -o server</div>
                     <div class="terminal-line out success">server: listening on port 8080</div>
-                    <div class="terminal-line out muted">server: connection from ::ffff:127.0.0.1</div>
-                    <div class="terminal-line out muted">Method: GET  Path: /</div>
-                    <div class="terminal-line out muted">Method: GET  Path: /api/status</div>
-                    <div class="terminal-line">
-                        <span class="prompt">$</span>
-                        <span class="cursor">_</span>
-                    </div>
+                    <div class="terminal-line out muted" id="log-placeholder">waiting for requests...</div>
                 </div>
             </div>
 
             <div class="hero-text">
-                <div class="status-pill">
-                    <span class="status-dot"></span>
-                    <span id="status-text">connecting...</span>
-                </div>
-
                 <h1>HTTP/1.1<br>Server in C</h1>
-
                 <p class="subtitle">
                     Built from raw TCP sockets.<br>
                     Zero external dependencies.<br>
                     Parses HTTP, routes requests, serves files.
                 </p>
-
                 <div class="cta-row">
                     <a href="https://github.com/mLeo19/http-server" target="_blank" class="btn-primary">view source</a>
-                    <a href="/api/status" class="btn-secondary">GET /api/status</a>
+                    <a href="#demo" class="btn-secondary">live demo ↓</a>
                 </div>
             </div>
         </section>
 
+        <!-- LIVE DEMO -->
+        <section class="demo-section" id="demo">
+            <div class="section-label">// live demo — hitting your C server right now</div>
+
+            <div class="demo-grid">
+                <!-- Todo App -->
+                <div class="demo-card">
+                    <div class="demo-card-header">
+                        <span class="demo-title">todo api</span>
+                        <span class="demo-method-badge">GET · POST · PATCH · DELETE</span>
+                    </div>
+
+                    <div class="todo-input-row">
+                        <input
+                            type="text"
+                            id="todo-input"
+                            placeholder="add a todo..."
+                            maxlength="100"
+                        />
+                        <button id="todo-add-btn" onclick="addTodo()">POST</button>
+                    </div>
+
+                    <div id="todo-list" class="todo-list">
+                        <div class="todo-empty">no todos yet — add one above</div>
+                    </div>
+                </div>
+
+                <!-- Request Log -->
+                <div class="demo-card">
+                    <div class="demo-card-header">
+                        <span class="demo-title">request log</span>
+                        <button class="clear-btn" onclick="clearLog()">clear</button>
+                    </div>
+                    <div id="request-log" class="request-log">
+                        <div class="log-empty">requests will appear here...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FEATURES -->
         <section class="features">
             <div class="section-label">// features</div>
             <div class="features-grid">
@@ -85,40 +117,42 @@
                 </div>
                 <div class="feature-card">
                     <span class="feature-num">04</span>
+                    <h3>body parsing</h3>
+                    <p>Reads Content-Length, extracts body after CRLF. Handles POST, PATCH.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-num">05</span>
                     <h3>static files</h3>
                     <p>Serves HTML, CSS, JS, images with correct MIME types from disk.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-num">05</span>
-                    <h3>ipv4 + ipv6</h3>
-                    <p>getaddrinfo with AF_UNSPEC. Accepts connections on both families.</p>
-                </div>
-                <div class="feature-card">
                     <span class="feature-num">06</span>
-                    <h3>memory safe</h3>
-                    <p>Address sanitizer enabled. Every malloc paired with free. Zero leaks.</p>
+                    <h3>request logging</h3>
+                    <p>Timestamped access log. Method, path, status code, response time.</p>
                 </div>
             </div>
         </section>
 
+        <!-- CODE -->
         <section class="code-section">
             <div class="section-label">// add a route</div>
             <div class="code-block">
-                <div class="code-header">
-                    <span>main.c</span>
-                </div>
+                <div class="code-header"><span>main.c</span></div>
                 <pre><code><span class="c-comment">// create server</span>
 Server *s = create_server(<span class="c-num">8080</span>);
 
-<span class="c-comment">// register your routes</span>
-register_route(s, <span class="c-str">"GET"</span>,  <span class="c-str">"/api/status"</span>, handle_status);
-register_route(s, <span class="c-str">"POST"</span>, <span class="c-str">"/api/data"</span>,   handle_data);
+<span class="c-comment">// register routes</span>
+register_route(s, <span class="c-str">"GET"</span>,    <span class="c-str">"/api/todos"</span>, handle_get_todos);
+register_route(s, <span class="c-str">"POST"</span>,   <span class="c-str">"/api/todos"</span>, handle_create_todo);
+register_route(s, <span class="c-str">"PATCH"</span>,  <span class="c-str">"/api/todos"</span>, handle_toggle_todo);
+register_route(s, <span class="c-str">"DELETE"</span>, <span class="c-str">"/api/todos"</span>, handle_delete_todo);
 
-<span class="c-comment">// blocks forever, handles requests</span>
+<span class="c-comment">// start server — blocks forever</span>
 start_server(s);</code></pre>
             </div>
         </section>
 
+        <!-- STACK -->
         <section class="stack-section">
             <div class="section-label">// stack</div>
             <div class="stack-grid">
@@ -158,22 +192,154 @@ start_server(s);</code></pre>
 
     <footer>
         <span>built by <a href="https://github.com/mLeo19" target="_blank">leonardo maicelo</a></span>
-        <span id="footer-status">server running</span>
+        <span>HTTP/1.1 · C · BSD Sockets</span>
     </footer>
 
     <script>
+        // ── status check ──────────────────────────────────
         fetch('/api/status')
             .then(r => r.json())
             .then(data => {
                 document.getElementById('status-text').textContent =
-                    'server ' + data.status;
-                document.getElementById('footer-status').textContent =
                     'server ' + data.status;
             })
             .catch(() => {
                 document.getElementById('status-text').textContent =
                     'server running';
             });
+
+        // ── request log ───────────────────────────────────
+        function logRequest(method, path, status, ms) {
+            const log = document.getElementById('request-log');
+            const empty = log.querySelector('.log-empty');
+            if (empty) empty.remove();
+
+            const statusClass = status >= 200 && status < 300
+                ? 'log-ok' : status === 404
+                ? 'log-not-found' : 'log-error';
+
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML =
+                `<span class="log-method ${method.toLowerCase()}">${method}</span>` +
+                `<span class="log-path">${path}</span>` +
+                `<span class="log-status ${statusClass}">${status}</span>` +
+                `<span class="log-time">${ms}ms</span>`;
+            log.insertBefore(entry, log.firstChild);
+
+            // also add to terminal
+            addTerminalLine(`${method} ${path} → ${status}`);
+        }
+
+        function clearLog() {
+            const log = document.getElementById('request-log');
+            log.innerHTML = '<div class="log-empty">requests will appear here...</div>';
+        }
+
+        // ── terminal log ──────────────────────────────────
+        function addTerminalLine(text) {
+            const terminal = document.getElementById('terminal-log');
+            const placeholder = document.getElementById('log-placeholder');
+            if (placeholder) placeholder.remove();
+
+            const line = document.createElement('div');
+            line.className = 'terminal-line out muted';
+            line.textContent = text;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+
+            // keep terminal to last 8 lines
+            const lines = terminal.querySelectorAll('.terminal-line.out.muted');
+            if (lines.length > 8) lines[0].remove();
+        }
+
+        // ── todo app ──────────────────────────────────────
+        async function loadTodos() {
+            const t0 = performance.now();
+            try {
+                const res = await fetch('/api/todos');
+                const ms = (performance.now() - t0).toFixed(1);
+                const todos = await res.json();
+                logRequest('GET', '/api/todos', res.status, ms);
+                renderTodos(todos);
+            } catch (e) {
+                console.error('failed to load todos', e);
+            }
+        }
+
+        function renderTodos(todos) {
+            const list = document.getElementById('todo-list');
+            if (todos.length === 0) {
+                list.innerHTML = '<div class="todo-empty">no todos yet — add one above</div>';
+                return;
+            }
+            list.innerHTML = todos.map(todo => `
+                <div class="todo-item ${todo.done ? 'done' : ''}" data-id="${todo.id}">
+                    <button class="todo-toggle" onclick="toggleTodo(${todo.id})">
+                        ${todo.done ? '✓' : '○'}
+                    </button>
+                    <span class="todo-title">${todo.title}</span>
+                    <button class="todo-delete" onclick="deleteTodo(${todo.id})">×</button>
+                </div>
+            `).join('');
+        }
+
+        async function addTodo() {
+            const input = document.getElementById('todo-input');
+            const title = input.value.trim();
+            if (!title) return;
+
+            const t0 = performance.now();
+            try {
+                const res = await fetch('/api/todos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title })
+                });
+                const ms = (performance.now() - t0).toFixed(1);
+                logRequest('POST', '/api/todos', res.status, ms);
+                input.value = '';
+                await loadTodos();
+            } catch (e) {
+                console.error('failed to add todo', e);
+            }
+        }
+
+        async function toggleTodo(id) {
+            const t0 = performance.now();
+            try {
+                const res = await fetch(`/api/todos?id=${id}`, {
+                    method: 'PATCH'
+                });
+                const ms = (performance.now() - t0).toFixed(1);
+                logRequest('PATCH', `/api/todos?id=${id}`, res.status, ms);
+                await loadTodos();
+            } catch (e) {
+                console.error('failed to toggle todo', e);
+            }
+        }
+
+        async function deleteTodo(id) {
+            const t0 = performance.now();
+            try {
+                const res = await fetch(`/api/todos?id=${id}`, {
+                    method: 'DELETE'
+                });
+                const ms = (performance.now() - t0).toFixed(1);
+                logRequest('DELETE', `/api/todos?id=${id}`, res.status, ms);
+                await loadTodos();
+            } catch (e) {
+                console.error('failed to delete todo', e);
+            }
+        }
+
+        // enter key submits todo
+        document.getElementById('todo-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter') addTodo();
+        });
+
+        // load todos on page load
+        loadTodos();
     </script>
 </body>
 </html>
