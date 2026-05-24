@@ -4,6 +4,10 @@ A production-style HTTP/1.1 server built from raw TCP sockets in C with zero ext
 
 **Live demo:** http://52.86.19.65:8080
 
+## Why C
+
+Built in C to demonstrate understanding of systems programming fundamentals — manual memory management, raw socket APIs, and explicit control over concurrency. Every abstraction in modern web frameworks exists to solve problems that are visible at this level. Building an HTTP server in C makes those problems and their solutions explicit.
+
 ## Benchmarks
 
 Tested on AWS EC2 t2.micro (Ubuntu 26.04) using Apache Bench.
@@ -246,6 +250,53 @@ Open port 8080 in your EC2 security group inbound rules.
 - Buffer overflow protection — all string operations use size-limited variants
 - Thread safe handlers — shared state protected by mutex
 - Address sanitizer enabled in debug builds
+
+## Concurrency
+
+The server runs 8 worker threads simultaneously via a thread pool.
+Handlers are called concurrently — multiple requests are processed
+at the same time by different threads.
+
+### Thread Safety Rules
+
+**Local variables are always safe:**
+```c
+int handle_example(int fd, HttpRequest *req) {
+    char buf[256];  // lives on this thread's stack
+    int count = 0;  // lives on this thread's stack
+    // no mutex needed — each thread has its own stack
+}
+```
+
+**Shared state requires a mutex:**
+```c
+// static and global variables are shared across all threads
+static int counter = 0;
+static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+int handle_counter(int fd, HttpRequest *req) {
+    pthread_mutex_lock(&lock);
+    counter++;                    // now thread safe
+    int val = counter;
+    pthread_mutex_unlock(&lock);
+
+    char json[64];
+    snprintf(json, sizeof json, "{\"count\": %d}", val);
+    return send_json(fd, 200, json);
+}
+```
+
+### Why Local Variables Are Safe
+
+Each thread has its own private stack. When two threads call the
+same handler simultaneously they each get completely independent
+copies of all local variables at different memory addresses.
+They never touch each other's memory.
+
+Only static variables, global variables, and heap allocated data
+shared between threads require mutex protection. See `handlers.c`
+for a complete example using `pthread_mutex_t` to protect the
+in-memory todo store.
 
 ## Roadmap
 
