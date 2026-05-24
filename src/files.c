@@ -3,11 +3,18 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "../include/files.h"
+#include "../include/logger.h"
 
 // returns heap allocated buffer containing file contents
 // caller is responsible for calling free() on returned pointer
 // returns NULL if file not found or cannot be read
 char *read_file(const char *path, size_t *file_size) {
+    // block path traversal attacks
+    // reject any path containing ".." 
+    if (strstr(path, "..") != NULL) {
+        log_error("path traversal attempt blocked");
+        return NULL;
+    }
     // 1. build the full path
     char full_path[512]; // big enough for "static/" + path
 

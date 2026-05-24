@@ -166,6 +166,12 @@ static void handle_connection(int fd) {
         close(fd);
         return;
     }
+    
+    if (bytes_read == 0) {
+        // client disconnected before sending data
+        close(fd);
+        return;
+    }
 
     HttpRequest req;
     if (!parse_request(buffer, &req)) {
